@@ -47,47 +47,47 @@ def cal_loss(pred, gold, smoothing):
         loss = -(one_hot * log_prb).sum(dim=1)
         loss = loss.masked_select(non_pad_mask).sum()  # average later
     else:
-        loss = F.cross_entropy(pred, gold, ignore_index=Constants.PAD, reduction='sum')
+        loss = F.cross_entropy(pred, gold, ignore_index=Constants.PAD)
 
     return loss
 
 
 def train_epoch(model, training_data, optimizer, device, smoothing):
     ''' Epoch operation in training phase'''
-
+    
     model.train()
-
+    
     total_loss = 0
     n_word_total = 0
     n_word_correct = 0
-
+    
     for batch in tqdm(
-            training_data, mininterval=2,
+            training_data, mininterval=1,
             desc='  - (Training)   ', leave=False):
-
+        
         # prepare data
         src_seq, src_pos, tgt_seq, tgt_pos = map(lambda x: x.to(device), batch)
         gold = tgt_seq[:, 1:]
-
+        
         # forward
         optimizer.zero_grad()
         pred = model(src_seq, src_pos, tgt_seq, tgt_pos)
-
+        
         # backward
         loss, n_correct = cal_performance(pred, gold, smoothing=smoothing)
         loss.backward()
-
+        
         # update parameters
         optimizer.step_and_update_lr()
-
+        
         # note keeping
         total_loss += loss.item()
-
+        
         non_pad_mask = gold.ne(Constants.PAD)
         n_word = non_pad_mask.sum().item()
         n_word_total += n_word
         n_word_correct += n_correct
-
+        
     loss_per_word = total_loss/n_word_total
     accuracy = n_word_correct/n_word_total
     return loss_per_word, accuracy
@@ -218,6 +218,8 @@ def main():
 
     parser.add_argument('-no_cuda', action='store_true')
     parser.add_argument('-label_smoothing', action='store_true')
+    parser.add_argument('-cards', default='0')
+    parser.add_argument('-num_workers', default=10)
 
     opt = parser.parse_args()
     opt.cuda = not opt.no_cuda
@@ -227,6 +229,7 @@ def main():
     data = torch.load(opt.data)
     opt.max_token_seq_len = data['settings'].max_token_seq_len
 
+    #training_data, validation_data = prepare_dataloaders_from_text(data, opt)
     training_data, validation_data = prepare_dataloaders(data, opt)
 
     opt.src_vocab_size = training_data.dataset.src_vocab_size
@@ -236,8 +239,6 @@ def main():
     if opt.embs_share_weight:
         assert training_data.dataset.src_word2idx == training_data.dataset.tgt_word2idx, \
             'The src/tgt word2idx table are different but asked to share word embedding.'
-
-    print(opt)
 
     device = torch.device('cuda' if opt.cuda else 'cpu')
     transformer = Transformer(
@@ -261,7 +262,10 @@ def main():
             betas=(0.9, 0.98), eps=1e-09),
         opt.d_model, opt.n_warmup_steps)
 
-    train(transformer, training_data, validation_data, optimizer, device ,opt)
+    if len(opt.cards) > 1:
+        cards = [int(x) for x in opt.cards.split(",")]
+        transformer = torch.nn.DataParallel(transformer, device_ids=cards).cuda()
+    train(transformer, training_data, validation_data, optimizer, device, opt)
 
 
 def prepare_dataloaders(data, opt):
@@ -272,10 +276,11 @@ def prepare_dataloaders(data, opt):
             tgt_word2idx=data['dict']['tgt'],
             src_insts=data['train']['src'],
             tgt_insts=data['train']['tgt']),
-        num_workers=2,
+        num_workers=int(opt.num_workers),
         batch_size=opt.batch_size,
         collate_fn=paired_collate_fn,
-        shuffle=True)
+        pin_memory=False,
+        shuffle=False)
 
     valid_loader = torch.utils.data.DataLoader(
         TranslationDataset(
@@ -283,8 +288,9 @@ def prepare_dataloaders(data, opt):
             tgt_word2idx=data['dict']['tgt'],
             src_insts=data['valid']['src'],
             tgt_insts=data['valid']['tgt']),
-        num_workers=2,
+        num_workers=int(opt.num_workers),
         batch_size=opt.batch_size,
+        pin_memory=False,
         collate_fn=paired_collate_fn)
     return train_loader, valid_loader
 
