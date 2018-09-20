@@ -5,6 +5,7 @@ This script handling the training process.
 import argparse
 import math
 import time
+import sys
 
 from tqdm import tqdm
 import torch
@@ -47,6 +48,10 @@ def cal_loss(pred, gold, smoothing):
         loss = -(one_hot * log_prb).sum(dim=1)
         loss = loss.masked_select(non_pad_mask).sum()  # average later
     else:
+<<<<<<< HEAD
+=======
+        #loss = F.cross_entropy(pred, gold, ignore_index=Constants.PAD, reduction='sum')
+>>>>>>> 8f052a2d9c76b867d1229d60e67cdefdb8d5ce4a
         loss = F.cross_entropy(pred, gold, ignore_index=Constants.PAD)
 
     return loss
@@ -280,7 +285,7 @@ def prepare_dataloaders(data, opt):
         num_workers=int(opt.num_workers),
         batch_size=opt.batch_size,
         collate_fn=paired_collate_fn,
-        pin_memory=False,
+        pin_memory=True,
         shuffle=False)
 
     valid_loader = torch.utils.data.DataLoader(
@@ -291,7 +296,7 @@ def prepare_dataloaders(data, opt):
             tgt_insts=data['valid']['tgt']),
         num_workers=int(opt.num_workers),
         batch_size=opt.batch_size,
-        pin_memory=False,
+        pin_memory=True,
         collate_fn=paired_collate_fn)
     return train_loader, valid_loader
 
