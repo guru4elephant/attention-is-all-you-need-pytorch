@@ -126,6 +126,7 @@ def eval_epoch(model, validation_data, device):
     accuracy = n_word_correct/n_word_total
     return loss_per_word, accuracy
 
+
 def train(model, training_data, validation_data, optimizer, device, opt):
     ''' Start training '''
 
